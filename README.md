@@ -24,14 +24,36 @@ ports to the hosted API with a client swap.
   $in $nin $exists $and $or`
 - `query_text`: local E5-small embedding for semantic text queries
   (`pip install .[embed]`); Pinecone's integrated-inference equivalent
-- Exact search: results are deterministic and exact (no ANN recall
-  error). Persistence is atomic tmp-dir + rename on every mutation.
+- Persistence is atomic tmp-dir + rename on every mutation.
+
+## Scan types (`index_type` at `create_index`)
+
+| Type | Search | Recall@10 | Query | Build |
+|---|---|---:|---:|---:|
+| `flat` | exact linear scan | 1.000 | 1.51 ms | 0.21 s |
+| `ivf` | k-means lists, `nprobe` probed | 0.822 | 0.43 ms | 0.20 s |
+| `hnsw` | small-world graph, ef beam | 0.895 | 1.14 ms | 14.3 s |
+
+Measured on 5k clustered vectors, dim 64, 100 queries (`bench.py`,
+committed in `results/scan_benchmark.json`). The honest read at this
+scale: **flat wins on every axis that matters** — exact and nearly as
+fast. `ivf` buys 3.5x query speed for 18 points of recall. The
+pure-Python HNSW is the cautionary tale: 70x slower to build than flat
+and worse recall than IVF — `ef_construction` is the quality knob
+(200 vs 64 moved recall 0.65 -> 0.90), and a production HNSW earns its
+keep only via compiled index structures this implementation
+deliberately lacks.
+
+Two real bugs the recall benchmark caught, kept in `git log`:
+layer-descent re-entered from the just-inserted node (self-distance 0)
+and orphaned it; nearest-M pruning deleted long-range bridge edges and
+fragmented the graph (only 104/800 nodes reachable). The
+relative-neighborhood heuristic in `_prune` is the fix.
 
 ## Not implemented (the real boundary)
 
 - Distributed/remote serving, replication, sharding
-- Approximate NN (HNSW/IVF), sparse/hybrid indexes, rerankers
-- Hosted inference integrations
+- Sparse/hybrid indexes, hosted reranker models, GPU acceleration
 
 ## Run
 

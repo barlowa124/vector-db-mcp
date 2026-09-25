@@ -9,3 +9,6 @@
   in-memory-only write path.
 - Checkpoints/index data stay out of git (`data/` is gitignored).
 - Run `PYTHONPATH=src .venv/bin/python -m pytest tests/ -q` after changes.
+- `index_type` defaults to flat (exact). ivf/hnsw are approximate; any
+  change to either must re-run `bench.py` and update the recall table in
+  the README. Never claim approximate results are exact.

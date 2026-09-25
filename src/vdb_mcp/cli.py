@@ -31,6 +31,8 @@ def main() -> None:
     c.add_argument("name")
     c.add_argument("--dim", type=int, required=True)
     c.add_argument("--metric", default="cosine")
+    c.add_argument("--index-type", default="flat",
+                   choices=["flat", "ivf", "hnsw"])
     sub.add_parser("list")
     d = sub.add_parser("describe")
     d.add_argument("name")
@@ -71,7 +73,8 @@ def main() -> None:
 
     s = Store()
     if args.cmd == "create":
-        out = s.create_index(args.name, args.dim, args.metric)
+        out = s.create_index(args.name, args.dim, args.metric,
+                             args.index_type)
     elif args.cmd == "list":
         out = s.list_indexes()
     elif args.cmd == "describe":

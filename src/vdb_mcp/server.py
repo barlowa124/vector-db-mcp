@@ -25,10 +25,11 @@ def build_server():
         return store.list_indexes()
 
     @m.tool()
-    def create_index(name: str, dimension: int,
-                     metric: str = "cosine") -> dict:
-        """Create an index. metric: cosine | euclidean | dotproduct."""
-        return store.create_index(name, dimension, metric)
+    def create_index(name: str, dimension: int, metric: str = "cosine",
+                     index_type: str = "flat") -> dict:
+        """Create an index. metric: cosine | euclidean | dotproduct.
+        index_type: flat (exact) | ivf | hnsw (approximate)."""
+        return store.create_index(name, dimension, metric, index_type)
 
     @m.tool()
     def describe_index(name: str) -> dict:

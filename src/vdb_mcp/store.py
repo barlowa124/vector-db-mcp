@@ -27,11 +27,12 @@ class Store:
             raise ValueError(f"invalid index name {name!r}")
         return self.root / name
 
-    def create_index(self, name: str, dimension: int, metric: str = "cosine"):
+    def create_index(self, name: str, dimension: int,
+                     metric: str = "cosine", index_type: str = "flat"):
         p = self._path(name)
         if p.exists():
             raise ValueError(f"index {name!r} already exists")
-        idx = VectorIndex(name, dimension, metric)
+        idx = VectorIndex(name, dimension, metric, index_type)
         idx.save(p)
         self._cache[name] = idx
         return idx.describe()
