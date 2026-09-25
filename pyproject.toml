@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vector-db-mcp"
+version = "0.1.0"
+description = "Local vector database with a Pinecone-surface API, exposed over MCP"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.2"]
+embed = ["torch", "transformers"]
+dev = ["pytest", "mcp>=1.2"]
+
+[project.scripts]
+vdb = "vdb_mcp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
