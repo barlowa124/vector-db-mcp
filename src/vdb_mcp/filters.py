@@ -18,10 +18,12 @@ def _cmp(value, op, operand):
         return value == operand
     if op == "$ne":
         return value != operand
-    if op == "$in":
-        return value in operand
-    if op == "$nin":
-        return value not in operand
+    if op in ("$in", "$nin"):
+        try:
+            inside = value in operand
+        except TypeError:
+            return False  # non-iterable operand: never match
+        return inside if op == "$in" else not inside
     try:
         if op == "$gt":
             return value > operand

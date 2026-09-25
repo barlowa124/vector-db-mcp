@@ -65,22 +65,28 @@ class VectorIndex:
                 "dimension": self.dimension}
 
     def upsert(self, records: list[dict], namespace: str = "") -> int:
-        d = self._ns_get(namespace)
-        ids, vecs, metas = d["ids"], d["vectors"], d["meta"]
+        # validate the whole batch first: a bad record mid-batch must not
+        # leave ids/meta appended while vectors are not (non-atomic writes
+        # corrupt the namespace for every later call)
+        parsed = []
         for r in records:
             v = np.asarray(r["values"], dtype=np.float32)
             if v.shape != (self.dimension,):
                 raise ValueError(
                     f"record {r.get('id')!r}: expected dim "
                     f"{self.dimension}, got {v.shape}")
-            if r["id"] in ids:
-                i = ids.index(r["id"])
-                vecs[i], metas[i] = v, r.get("metadata", {})
+            parsed.append((r["id"], v, r.get("metadata", {})))
+        d = self._ns_get(namespace)
+        ids, vecs, metas = d["ids"], d["vectors"], d["meta"]
+        for rid, v, meta in parsed:
+            if rid in ids:
+                i = ids.index(rid)
+                vecs[i], metas[i] = v, meta
                 self._invalidate(d)
             else:
-                ids.append(r["id"])
+                ids.append(rid)
                 vecs = np.vstack([vecs, v[None, :]])
-                metas.append(r.get("metadata", {}))
+                metas.append(meta)
                 scan = d["scan"]
                 if scan is not None and self.index_type == "hnsw":
                     scan.add(self._scan_space(v[None, :])[0])
