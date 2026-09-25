@@ -44,10 +44,14 @@ def match(metadata: dict, flt: dict | None) -> bool:
     metadata = metadata or {}
     for key, cond in flt.items():
         if key == "$and":
+            if not isinstance(cond, list):
+                raise ValueError("$and operand must be a list")
             if not all(match(metadata, c) for c in cond):
                 return False
             continue
         if key == "$or":
+            if not isinstance(cond, list):
+                raise ValueError("$or operand must be a list")
             if not any(match(metadata, c) for c in cond):
                 return False
             continue

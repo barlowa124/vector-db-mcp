@@ -114,6 +114,71 @@ class TestStoreEdges:
         with pytest.raises(ValueError):
             s.create_index("a/b", 3)
 
+    def test_namespace_traversal_rejected(self, tmp_path):
+        s = Store(tmp_path)
+        s.create_index("x", 2)
+        for bad in ("../escape", "a/b", "..", ".hidden", "_default",
+                    "_DEFAULT"):
+            with pytest.raises(ValueError):
+                s.upsert("x", [{"id": "a", "values": [1, 0]}],
+                         namespace=bad)
+        # nothing escaped onto disk, and the registry still lists cleanly
+        assert [d.name for d in tmp_path.iterdir()] == ["x"]
+        assert [i["name"] for i in s.list_indexes()] == ["x"]
+
+    def test_namespace_validation_on_all_ops(self, tmp_path):
+        s = Store(tmp_path)
+        s.create_index("x", 2)
+        s.upsert("x", [{"id": "a", "values": [1, 0]}])
+        for bad in ("../escape", "_default"):
+            with pytest.raises(ValueError):
+                s.query("x", vector=[1, 0], namespace=bad)
+            with pytest.raises(ValueError):
+                s.fetch("x", ["a"], namespace=bad)
+            with pytest.raises(ValueError):
+                s.delete("x", namespace=bad, delete_all=True)
+            with pytest.raises(ValueError):
+                s.update("x", namespace=bad, id="a", set_metadata={"k": 1})
+
+    def test_default_namespace_survives_roundtrip(self, tmp_path):
+        s = Store(tmp_path)
+        s.create_index("x", 2)
+        s.upsert("x", [{"id": "a", "values": [1, 0]}], namespace="")
+        s.upsert("x", [{"id": "b", "values": [0, 1]}], namespace="other")
+        s2 = Store(tmp_path)
+        idx = s2.get("x")
+        assert idx.fetch(["a"], "")["vectors"].keys() == {"a"}
+        assert idx.fetch(["b"], "other")["vectors"].keys() == {"b"}
+
+    def test_bad_top_k_and_dimension_rejected(self, tmp_path):
+        s = Store(tmp_path)
+        with pytest.raises(ValueError):
+            s.create_index("zero", 0)
+        s.create_index("x", 2)
+        s.upsert("x", [{"id": "a", "values": [1, 0]}])
+        for bad_k in (0, -1, -100):
+            with pytest.raises(ValueError):
+                s.query("x", vector=[1, 0], top_k=bad_k)
+
+    def test_update_merges_none_metadata(self, tmp_path):
+        s = Store(tmp_path)
+        s.create_index("x", 2)
+        s.upsert("x", [{"id": "a", "values": [1, 0], "metadata": None}])
+        s.update("x", namespace="", id="a", set_metadata={"k": 1})
+        assert s.fetch("x", ["a"])["vectors"]["a"]["metadata"] == {"k": 1}
+
+    def test_save_clears_stale_tmp_residue(self, tmp_path):
+        s = Store(tmp_path)
+        s.create_index("x", 2)
+        idx = s.get("x")
+        idx.upsert([rec("a", [1, 0])], "gone")
+        idx.save(tmp_path / "x")
+        stale = tmp_path / "x.tmp" / "gone"
+        stale.mkdir(parents=True)
+        idx.delete("gone", delete_all=True)
+        idx.save(tmp_path / "x")
+        assert not (tmp_path / "x" / "gone").exists()
+
     def test_corrupt_index_json_surfaces(self, tmp_path):
         s = Store(tmp_path)
         s.create_index("x", 2)

@@ -14,6 +14,17 @@ import numpy as np
 
 METRICS = ("cosine", "euclidean", "dotproduct")
 INDEX_TYPES = ("flat", "ivf", "hnsw")
+# "" is the default namespace and persists as the "_default" directory;
+# reserved and path-unsafe names must be rejected before they hit disk.
+_NS_DIR_DEFAULT = "_default"
+
+
+def _check_ns(ns: str) -> None:
+    if not isinstance(ns, str):
+        raise ValueError(f"invalid namespace {ns!r}")
+    if (ns.lower() == _NS_DIR_DEFAULT or "/" in ns or "\\" in ns
+            or ".." in ns or ns.startswith(".")):
+        raise ValueError(f"invalid namespace {ns!r}")
 
 
 class VectorIndex:
@@ -23,6 +34,8 @@ class VectorIndex:
             raise ValueError(f"metric must be one of {METRICS}")
         if index_type not in INDEX_TYPES:
             raise ValueError(f"index_type must be one of {INDEX_TYPES}")
+        if int(dimension) < 1:
+            raise ValueError("dimension must be a positive integer")
         self.name = name
         self.dimension = int(dimension)
         self.metric = metric
@@ -49,6 +62,7 @@ class VectorIndex:
         return None
 
     def _ns_get(self, ns: str) -> dict:
+        _check_ns(ns)
         return self._ns.setdefault(ns, self._empty())
 
     def describe(self) -> dict:
@@ -129,6 +143,7 @@ class VectorIndex:
             d["scan"].dirty = True
 
     def fetch(self, ids: list[str], namespace: str = "") -> dict:
+        _check_ns(namespace)
         d = self._ns.get(namespace) or self._empty()
         out = {}
         for i in ids:
@@ -154,6 +169,9 @@ class VectorIndex:
               include_metadata: bool = True) -> dict:
         from vdb_mcp.filters import match
 
+        _check_ns(namespace)
+        if top_k < 1:
+            raise ValueError("top_k must be a positive integer")
         d = self._ns.get(namespace) or self._empty()
         if id is not None:
             if id not in d["ids"]:
@@ -181,6 +199,7 @@ class VectorIndex:
 
     def delete(self, namespace: str = "", ids: list[str] | None = None,
                delete_all: bool = False) -> int:
+        _check_ns(namespace)
         if namespace not in self._ns:
             return 0
         if delete_all:
@@ -202,6 +221,7 @@ class VectorIndex:
 
     def update(self, namespace: str, id: str, values=None,
                set_metadata: dict | None = None) -> bool:
+        _check_ns(namespace)
         d = self._ns.get(namespace) or self._empty()
         if id not in d["ids"]:
             return False
@@ -212,7 +232,7 @@ class VectorIndex:
                 raise ValueError("dim mismatch")
             d["vectors"][j] = v
         if set_metadata:
-            d["meta"][j].update(set_metadata)
+            d["meta"][j] = {**(d["meta"][j] or {}), **set_metadata}
         self._invalidate(d)
         return True
 
@@ -222,13 +242,19 @@ class VectorIndex:
         from pathlib import Path
         path = Path(path)
         tmp = path.with_suffix(".tmp")
+        # clear residue from an interrupted previous save: a namespace dir
+        # left behind would be renamed into the fresh save
+        if tmp.exists():
+            import shutil
+            shutil.rmtree(tmp)
         tmp.mkdir(parents=True, exist_ok=True)
         (tmp / "index.json").write_text(json.dumps({
             "name": self.name, "dimension": self.dimension,
             "metric": self.metric, "index_type": self.index_type,
             "created": self.created_utc}, indent=1))
         for ns, d in self._ns.items():
-            ns_dir = tmp / (ns if ns else "_default")
+            _check_ns(ns)
+            ns_dir = tmp / (ns if ns else _NS_DIR_DEFAULT)
             ns_dir.mkdir(exist_ok=True)
             np.savez_compressed(
                 ns_dir / "records.npz",
@@ -259,5 +285,5 @@ class VectorIndex:
                 "vectors": z["vectors"].astype(np.float32),
                 "meta": [json.loads(m) for m in z["meta"].tolist()],
             })
-            idx._ns["" if ns_dir.name == "_default" else ns_dir.name] = d
+            idx._ns["" if ns_dir.name == _NS_DIR_DEFAULT else ns_dir.name] = d
         return idx
