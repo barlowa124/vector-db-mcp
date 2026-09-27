@@ -3,7 +3,7 @@
 A local vector database exposing the **Pinecone API surface over MCP**
 (stdio) — the only differences by design are scale and networking:
 records live in `data/indexes/` on local disk and search is an exact
-linear scan, not approximate nearest neighbors.
+flat scan by default, with approximate IVF/HNSW index types available.
 
 ## Why
 
@@ -24,7 +24,10 @@ ports to the hosted API with a client swap.
   $in $nin $exists $and $or`
 - `query_text`: local E5-small embedding for semantic text queries
   (`pip install .[embed]`); Pinecone's integrated-inference equivalent
-- Persistence is atomic tmp-dir + rename on every mutation.
+- Persistence stages each save in a hidden sibling dir and renames it
+  into place on every mutation. The previous index is kept as a backup
+  until the new one lands and is restored automatically if the swap
+  failed.
 
 ## Scan types (`index_type` at `create_index`)
 
@@ -38,8 +41,9 @@ Measured on 5k clustered vectors, dim 64, 100 queries (`bench.py`,
 committed in `results/scan_benchmark.json`). The honest read at this
 scale: **flat wins on every axis that matters** — exact and nearly as
 fast. `ivf` buys 3.5x query speed for 18 points of recall. The
-pure-Python HNSW is the cautionary tale: 70x slower to build than flat
-and worse recall than IVF — `ef_construction` is the quality knob
+pure-Python HNSW is the cautionary tale: recall of 0.895 beats IVF's
+0.822 but it builds 70x slower than flat and queries slower —
+`ef_construction` is the quality knob
 (200 vs 64 moved recall 0.65 -> 0.90), and a production HNSW earns its
 keep only via compiled index structures this implementation
 deliberately lacks.
@@ -82,6 +86,10 @@ vdb query docs --vector-file q.json --ns papers --filter '{"year":{"$gte":2020}}
 
 ## Scope
 
-Local, single-process, exact search. Research/education tooling; not a
+Local, single-process, exact flat search plus approximate IVF/HNSW.
+One Store instance owns a data dir at a time — multiple cached Store
+instances are not coherent and the shared lock does not fix stale
+caches. The stage/backup save recovers mid-write failures but offers no
+multi-process or power-loss durability guarantee. Research/education tooling; not a
 managed-service replacement at scale, and that is the point — the
 interface is honest about where the boundary is.
