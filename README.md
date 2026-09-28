@@ -38,11 +38,11 @@ ports to the hosted API with a client swap.
 | `hnsw` | small-world graph, ef beam | 0.895 | 1.14 ms | 14.3 s |
 
 Measured on 5k clustered vectors, dim 64, 100 queries (`bench.py`,
-committed in `results/scan_benchmark.json`). The honest read at this
-scale: **flat wins on every axis that matters** — exact and nearly as
+committed in `results/scan_benchmark.json`). The read at this
+scale: **flat wins on every axis that matters**: exact and nearly as
 fast. `ivf` buys 3.5x query speed for 18 points of recall. The
 pure-Python HNSW is the cautionary tale: recall of 0.895 beats IVF's
-0.822 but it builds 70x slower than flat and queries slower —
+0.822 but it builds 70x slower than flat and queries slower.
 `ef_construction` is the quality knob
 (200 vs 64 moved recall 0.65 -> 0.90), and a production HNSW earns its
 keep only via compiled index structures this implementation
@@ -50,7 +50,7 @@ deliberately lacks.
 
 Two real bugs the recall benchmark caught, kept in `git log`:
 layer-descent re-entered from the just-inserted node (self-distance 0)
-and orphaned it; nearest-M pruning deleted long-range bridge edges and
+and orphaned it. Nearest-M pruning deleted long-range bridge edges and
 fragmented the graph (only 104/800 nodes reachable). The
 relative-neighborhood heuristic in `_prune` is the fix.
 
@@ -87,9 +87,9 @@ vdb query docs --vector-file q.json --ns papers --filter '{"year":{"$gte":2020}}
 ## Scope
 
 Local, single-process, exact flat search plus approximate IVF/HNSW.
-One Store instance owns a data dir at a time — multiple cached Store
+One Store instance owns a data dir at a time. Multiple cached Store
 instances are not coherent and the shared lock does not fix stale
 caches. The stage/backup save recovers mid-write failures but offers no
-multi-process or power-loss durability guarantee. Research/education tooling; not a
-managed-service replacement at scale, and that is the point — the
+multi-process or power-loss durability guarantee. Research/education tooling, not a
+managed-service replacement at scale, and that is the point: the
 interface is honest about where the boundary is.
