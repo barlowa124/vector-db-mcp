@@ -19,6 +19,15 @@ INDEX_TYPES = ("flat", "ivf", "hnsw")
 # reserved and path-unsafe names must be rejected before they hit disk.
 _NS_DIR_DEFAULT = "_default"
 
+# Approximate-scan tuning: oversample the flat candidate pool by
+# _SCAN_OVERSAMPLE (floor _SCAN_MIN_CANDIDATES) and widen the HNSW
+# search frontier by _EF_PER_K (floor _EF_MIN) so recall@k stays high
+# when top_k is small. See bench.py for the recall trade-off.
+_SCAN_OVERSAMPLE = 8
+_SCAN_MIN_CANDIDATES = 64
+_EF_MIN = 160
+_EF_PER_K = 16
+
 
 def _check_ns(ns: str) -> None:
     if not isinstance(ns, str):
@@ -138,8 +147,11 @@ class VectorIndex:
             for v in vecs:
                 scan.add(v)
             d["scan"] = scan
-        return scan.search(qv, k=min(n, max(top_k * 8, 64)),
-                           ef=max(160, top_k * 16))
+        return scan.search(
+            qv,
+            k=min(n, max(top_k * _SCAN_OVERSAMPLE, _SCAN_MIN_CANDIDATES)),
+            ef=max(_EF_MIN, top_k * _EF_PER_K),
+        )
 
     @staticmethod
     def _invalidate(d: dict) -> None:
