@@ -9,6 +9,7 @@ results are exact rather than approximate, and capacity is RAM.
 from __future__ import annotations
 
 import time
+from pathlib import PureWindowsPath
 
 import numpy as np
 
@@ -22,8 +23,11 @@ _NS_DIR_DEFAULT = "_default"
 def _check_ns(ns: str) -> None:
     if not isinstance(ns, str):
         raise ValueError(f"invalid namespace {ns!r}")
-    if (ns.lower() == _NS_DIR_DEFAULT or "/" in ns or "\\" in ns
-            or ".." in ns or ns.startswith(".")):
+    if (ns.lower() == _NS_DIR_DEFAULT
+            or any(c in ns for c in '/\\:\x00<>"|?*')
+            or '..' in ns or ns.startswith('.')
+            or ns.rstrip(' .') != ns or PureWindowsPath(ns).drive
+            or PureWindowsPath(ns).is_reserved()):
         raise ValueError(f"invalid namespace {ns!r}")
 
 
@@ -237,40 +241,67 @@ class VectorIndex:
         return True
 
     # ---- persistence ----
-    def save(self, path) -> None:
-        import json
+    @staticmethod
+    def recover(path):
         from pathlib import Path
         path = Path(path)
-        tmp = path.with_suffix(".tmp")
-        # clear residue from an interrupted previous save: a namespace dir
-        # left behind would be renamed into the fresh save
-        if tmp.exists():
-            import shutil
-            shutil.rmtree(tmp)
-        tmp.mkdir(parents=True, exist_ok=True)
-        (tmp / "index.json").write_text(json.dumps({
-            "name": self.name, "dimension": self.dimension,
-            "metric": self.metric, "index_type": self.index_type,
-            "created": self.created_utc}, indent=1))
-        for ns, d in self._ns.items():
-            _check_ns(ns)
-            ns_dir = tmp / (ns if ns else _NS_DIR_DEFAULT)
-            ns_dir.mkdir(exist_ok=True)
-            np.savez_compressed(
-                ns_dir / "records.npz",
-                ids=np.asarray(d["ids"]),
-                vectors=d["vectors"],
-                meta=np.asarray([json.dumps(m) for m in d["meta"]]))
-        if path.exists():
-            import shutil
-            shutil.rmtree(path)
-        tmp.rename(path)
+        backup = path.with_name(f'.{path.name}.backup')
+        if backup.is_symlink():
+            raise ValueError('index backup must not be a symlink')
+        if not path.exists() and backup.exists():
+            backup.replace(path)
+
+    def save(self, path) -> None:
+        import contextlib
+        import json
+        import shutil
+        import tempfile
+        from pathlib import Path
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.recover(path)
+        backup = path.with_name(f'.{path.name}.backup')
+        tmp = Path(tempfile.mkdtemp(prefix=f'.{path.name}.stage-',
+                                    dir=path.parent))
+        try:
+            # residue from an interrupted save stays inside its own hidden
+            # stage dir and is never renamed into the canonical index
+            (tmp / "index.json").write_text(json.dumps({
+                "name": self.name, "dimension": self.dimension,
+                "metric": self.metric, "index_type": self.index_type,
+                "created": self.created_utc}, indent=1))
+            for ns, d in self._ns.items():
+                _check_ns(ns)
+                ns_dir = tmp / (ns if ns else _NS_DIR_DEFAULT)
+                ns_dir.mkdir(exist_ok=True)
+                np.savez_compressed(
+                    ns_dir / "records.npz",
+                    ids=np.asarray(d["ids"]),
+                    vectors=d["vectors"],
+                    meta=np.asarray([json.dumps(m) for m in d["meta"]]))
+            if backup.exists():
+                shutil.rmtree(backup)
+            if path.exists():
+                path.replace(backup)
+            try:
+                tmp.replace(path)
+            except BaseException:
+                self.recover(path)
+                raise
+            if backup.exists():
+                with contextlib.suppress(OSError):
+                    shutil.rmtree(backup)
+        finally:
+            if tmp.exists():
+                with contextlib.suppress(OSError):
+                    shutil.rmtree(tmp)
 
     @classmethod
     def load(cls, path) -> "VectorIndex":
         import json
         from pathlib import Path
         path = Path(path)
+        cls.recover(path)
         meta = json.loads((path / "index.json").read_text())
         idx = cls(meta["name"], meta["dimension"], meta["metric"],
                   meta.get("index_type", "flat"))
