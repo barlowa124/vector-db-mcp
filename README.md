@@ -93,3 +93,8 @@ caches. The stage/backup save recovers mid-write failures but offers no
 multi-process or power-loss durability guarantee. Research/education tooling, not a
 managed-service replacement at scale, and that is the point: the
 interface is honest about where the boundary is.
+
+## Related work
+
+- [oncology-coscientist](https://github.com/barlowa124/oncology-coscientist) is the consumer-shaped neighbor: its `rag` layer does the index-and-retrieve role this DB serves for agent workflows.
+- [lab-instrument-gateway](https://github.com/barlowa124/lab-instrument-gateway) shares the same pattern of an MCP-adjacent local service with honest scope limits.
