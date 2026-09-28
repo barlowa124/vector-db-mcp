@@ -61,7 +61,7 @@ class VectorIndex:
     def _empty(self):
         return {"ids": [], "vectors": np.zeros((0, self.dimension),
                                                np.float32), "meta": [],
-                "scan": self._new_scan()}
+                "id2idx": {}, "scan": self._new_scan()}
 
     def _new_scan(self):
         if self.index_type == "ivf":
@@ -104,22 +104,34 @@ class VectorIndex:
                     f"{self.dimension}, got {v.shape}")
             parsed.append((r["id"], v, r.get("metadata", {})))
         d = self._ns_get(namespace)
-        ids, vecs, metas = d["ids"], d["vectors"], d["meta"]
+        ids, metas = d["ids"], d["meta"]
+        id2idx = d["id2idx"]
+        # Collect appends and stack once: per-record vstack and ids.index()
+        # make bulk upsert quadratic in namespace size.
+        new_vecs: list[np.ndarray] = []
+        overwritten = False
         for rid, v, meta in parsed:
-            if rid in ids:
-                i = ids.index(rid)
-                vecs[i], metas[i] = v, meta
-                self._invalidate(d)
+            if rid in id2idx:
+                i = id2idx[rid]
+                d["vectors"][i], metas[i] = v, meta
+                overwritten = True
             else:
+                id2idx[rid] = len(ids)
                 ids.append(rid)
-                vecs = np.vstack([vecs, v[None, :]])
                 metas.append(meta)
-                scan = d["scan"]
-                if scan is not None and self.index_type == "hnsw":
-                    scan.add(self._scan_space(v[None, :])[0])
-                elif scan is not None:
-                    scan.dirty = True
-        d["vectors"] = vecs
+                new_vecs.append(v)
+        if new_vecs:
+            base = d["vectors"]
+            d["vectors"] = (np.vstack([base, np.stack(new_vecs)])
+                            if len(base) else np.stack(new_vecs))
+            scan = d["scan"]
+            if scan is not None and self.index_type == "hnsw":
+                for v in self._scan_space(np.stack(new_vecs)):
+                    scan.add(v)
+            elif scan is not None:
+                scan.dirty = True
+        if overwritten:
+            self._invalidate(d)
         return len(records)
 
     def _scan_space(self, vecs: np.ndarray) -> np.ndarray:
@@ -154,6 +166,10 @@ class VectorIndex:
         )
 
     @staticmethod
+    def _reindex(d: dict) -> None:
+        d["id2idx"] = {rid: j for j, rid in enumerate(d["ids"])}
+
+    @staticmethod
     def _invalidate(d: dict) -> None:
         if d["scan"] is not None:
             d["scan"].dirty = True
@@ -163,8 +179,8 @@ class VectorIndex:
         d = self._ns.get(namespace) or self._empty()
         out = {}
         for i in ids:
-            if i in d["ids"]:
-                j = d["ids"].index(i)
+            j = d["id2idx"].get(i)
+            if j is not None:
                 out[i] = {"id": i, "values": d["vectors"][j].tolist(),
                           "metadata": d["meta"][j]}
         return {"vectors": out, "namespace": namespace}
@@ -190,9 +206,9 @@ class VectorIndex:
             raise ValueError("top_k must be a positive integer")
         d = self._ns.get(namespace) or self._empty()
         if id is not None:
-            if id not in d["ids"]:
+            if id not in d["id2idx"]:
                 raise ValueError(f"id {id!r} not in namespace")
-            vector = d["vectors"][d["ids"].index(id)]
+            vector = d["vectors"][d["id2idx"][id]]
         if vector is None:
             raise ValueError("query requires vector or id")
         q = np.asarray(vector, dtype=np.float32)
@@ -232,6 +248,7 @@ class VectorIndex:
         d["ids"] = [d["ids"][j] for j in keep]
         d["vectors"] = d["vectors"][keep]
         d["meta"] = [d["meta"][j] for j in keep]
+        self._reindex(d)
         self._invalidate(d)
         return len(drop)
 
@@ -239,9 +256,9 @@ class VectorIndex:
                set_metadata: dict | None = None) -> bool:
         _check_ns(namespace)
         d = self._ns.get(namespace) or self._empty()
-        if id not in d["ids"]:
+        j = d["id2idx"].get(id)
+        if j is None:
             return False
-        j = d["ids"].index(id)
         if values is not None:
             v = np.asarray(values, dtype=np.float32)
             if v.shape != (self.dimension,):
@@ -328,5 +345,6 @@ class VectorIndex:
                 "vectors": z["vectors"].astype(np.float32),
                 "meta": [json.loads(m) for m in z["meta"].tolist()],
             })
+            idx._reindex(d)
             idx._ns["" if ns_dir.name == _NS_DIR_DEFAULT else ns_dir.name] = d
         return idx
