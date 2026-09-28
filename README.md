@@ -96,5 +96,5 @@ interface is honest about where the boundary is.
 
 ## Related work
 
-- [oncology-coscientist](https://github.com/barlowa124/oncology-coscientist) is the consumer-shaped neighbor: its `rag` layer does the index-and-retrieve role this DB serves for agent workflows.
+- [oncology-coscientist](https://github.com/barlowa124/oncology-coscientist) consumes this repo directly when `rag_mode: embed` is set: `vdb_mcp.embed` supplies the E5 passage/query embeddings. Its committed `rag_mode_comparison.json` shows BM25-vs-tfidf agreement. BM25 remains the default.
 - [lab-instrument-gateway](https://github.com/barlowa124/lab-instrument-gateway) shares the same pattern of an MCP-adjacent local service with honest scope limits.
