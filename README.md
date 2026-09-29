@@ -1,9 +1,11 @@
 # vector-db-mcp
 
 A local vector database exposing the **Pinecone API surface over MCP**
-(stdio) — the only differences by design are scale and networking:
-records live in `data/indexes/` on local disk and search is an exact
-flat scan by default, with approximate IVF/HNSW index types available.
+(stdio). What it demonstrates: an agent-facing retrieval service built
+against a real API contract, with durable writes (tmp-dir + rename) and
+search that is an exact flat scan by default. Approximate IVF/HNSW index
+types are available and labeled approximate, with measured recall in the
+bench table below.
 
 ## Why
 
