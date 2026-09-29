@@ -93,8 +93,8 @@ One Store instance owns a data dir at a time. Multiple cached Store
 instances are not coherent and the shared lock does not fix stale
 caches. The stage/backup save recovers mid-write failures but offers no
 multi-process or power-loss durability guarantee. Research/education tooling, not a
-managed-service replacement at scale, and that is the point: the
-interface is honest about where the boundary is.
+managed-service replacement, and the interface is explicit about where
+the boundary is.
 
 ## Related work
 
